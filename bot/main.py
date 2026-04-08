@@ -15,6 +15,7 @@ from telegram.ext import (
 # Add parent directory to path to import backend modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.crypto_service import crypto_service
+from bot.database_helper import db
 
 load_dotenv()
 
@@ -29,6 +30,16 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
+    # Register user in database
+    user = update.effective_user
+    await db.register_user(
+        telegram_id=str(user.id),
+        username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name,
+    )
+    await db.log_command(str(user.id), "/start")
+
     welcome_message = (
         "👋 *Welcome to SE Crypto Bot!*\n\n"
         "I can help you get cryptocurrency information:\n\n"
@@ -68,6 +79,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get cryptocurrency price."""
+    user = update.effective_user
+    await db.log_command(str(user.id), "/price")
+
     if not context.args:
         await update.message.reply_text(
             "❌ Please specify a coin symbol. Example: `/price bitcoin`",
@@ -97,6 +111,9 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get top cryptocurrencies."""
+    user = update.effective_user
+    await db.log_command(str(user.id), "/top")
+
     limit = 10
     if context.args and context.args[0].isdigit():
         limit = min(int(context.args[0]), 20)  # Cap at 20
@@ -127,6 +144,9 @@ async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def details_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get detailed coin information."""
+    user = update.effective_user
+    await db.log_command(str(user.id), "/details")
+
     if not context.args:
         await update.message.reply_text(
             "❌ Please specify a coin symbol. Example: `/details bitcoin`",
@@ -166,6 +186,9 @@ async def details_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ratio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get long/short ratio."""
+    user = update.effective_user
+    await db.log_command(str(user.id), "/ratio")
+
     symbol = "BTCUSDT"
     if context.args:
         symbol = "".join(context.args).upper()
@@ -203,6 +226,9 @@ async def ratio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def trending_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get trending cryptocurrencies."""
+    user = update.effective_user
+    await db.log_command(str(user.id), "/trending")
+
     await update.message.reply_text("🔍 Fetching trending cryptocurrencies...")
 
     trending = await crypto_service.get_trending_coins()
@@ -226,6 +252,9 @@ async def trending_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def sentiment_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get market sentiment (Fear & Greed Index)."""
+    user = update.effective_user
+    await db.log_command(str(user.id), "/sentiment")
+
     await update.message.reply_text("🔍 Fetching market sentiment...")
 
     fgi = await crypto_service.get_fear_greed_index()

@@ -283,9 +283,9 @@ SOFTWARE.
 
 ## Author
 
-- Your Name
-- Your University Email
-- Your Group
+- Kosishnov Arseniy
+- a.kosishnov@innopolis.university
+- B25-DSAI-05
 
 ## Acknowledgments
 

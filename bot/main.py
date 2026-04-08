@@ -1,0 +1,304 @@
+import os
+import logging
+from dotenv import load_dotenv
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+    CallbackQueryHandler,
+)
+from backend.crypto_service import crypto_service
+
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send a message when the command /start is issued."""
+    welcome_message = (
+        "👋 *Welcome to SE Crypto Bot!*\n\n"
+        "I can help you get cryptocurrency information:\n\n"
+        "📊 *Commands:*\n"
+        "/price <coin> - Get current price\n"
+        "/top [number] - Get top cryptocurrencies\n"
+        "/details <coin> - Get detailed coin info\n"
+        "/ratio <pair> - Get long/short ratio\n"
+        "/trending - Get trending coins\n"
+        "/sentiment - Get market sentiment\n"
+        "/help - Show this help message\n\n"
+        "Example: `/price bitcoin` or `/top 5`"
+    )
+    await update.message.reply_text(welcome_message, parse_mode="Markdown")
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send help message."""
+    help_text = (
+        "🤖 *SE Crypto Bot Help*\n\n"
+        "*Available Commands:*\n"
+        "• `/price <coin>` - Get current price (e.g., /price btc)\n"
+        "• `/top [n]` - Get top N cryptocurrencies (default: 10)\n"
+        "• `/details <coin>` - Get detailed information about a coin\n"
+        "• `/ratio <pair>` - Get long/short ratio (e.g., /ratio BTCUSDT)\n"
+        "• `/trending` - Get currently trending cryptocurrencies\n"
+        "• `/sentiment` - Get market fear & greed index\n"
+        "• `/help` - Show this help message\n\n"
+        "*Examples:*\n"
+        "`/price ethereum`\n"
+        "`/top 5`\n"
+        "`/details solana`\n"
+        "`/ratio ETHUSDT`"
+    )
+    await update.message.reply_text(help_text, parse_mode="Markdown")
+
+
+async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get cryptocurrency price."""
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Please specify a coin symbol. Example: `/price bitcoin`",
+            parse_mode="Markdown",
+        )
+        return
+
+    coin = " ".join(context.args).lower()
+    await update.message.reply_text(f"🔍 Fetching price for {coin}...")
+
+    coin_data = await crypto_service.get_coin_price(coin)
+
+    if coin_data:
+        price_text = (
+            f"💰 *{coin_data['symbol']}*\n\n"
+            f"💵 Price: `${coin_data['price']:,.2f}`\n"
+            f"📈 24h Change: `{coin_data['price_change_24h']:+.2f}%`\n"
+            f"💎 Market Cap: `${coin_data['market_cap']:,.0f}`\n"
+            f"📊 24h Volume: `${coin_data['volume_24h']:,.0f}`"
+        )
+        await update.message.reply_text(price_text, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(
+            f"❌ Could not find price for '{coin}'. Please check the symbol."
+        )
+
+
+async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get top cryptocurrencies."""
+    limit = 10
+    if context.args and context.args[0].isdigit():
+        limit = min(int(context.args[0]), 20)  # Cap at 20
+
+    await update.message.reply_text(f"🔍 Fetching top {limit} cryptocurrencies...")
+
+    coins = await crypto_service.get_top_coins(limit)
+
+    if coins:
+        top_text = "🏆 *Top Cryptocurrencies*\n\n"
+        for i, coin in enumerate(coins[:limit], 1):
+            change = coin.get("price_change_24h", 0) or 0
+            change_symbol = "🟢" if change >= 0 else "🔴"
+            top_text += (
+                f"{i}. *{coin['symbol']}* - `${coin['price']:,.2f}` {change_symbol}\n"
+                f"   24h: `{change:+.2f}%` | MC: `${coin['market_cap']:,.0f}`\n\n"
+            )
+
+        # Split message if too long
+        if len(top_text) > 4000:
+            for chunk in [top_text[i:i+4000] for i in range(0, len(top_text), 4000)]:
+                await update.message.reply_text(chunk, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(top_text, parse_mode="Markdown")
+    else:
+        await update.message.reply_text("❌ Could not fetch top coins. Please try again later.")
+
+
+async def details_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get detailed coin information."""
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Please specify a coin symbol. Example: `/details bitcoin`",
+            parse_mode="Markdown",
+        )
+        return
+
+    coin = " ".join(context.args).lower()
+    await update.message.reply_text(f"🔍 Fetching details for {coin}...")
+
+    details = await crypto_service.get_coin_details(coin)
+
+    if details:
+        details_text = (
+            f"📊 *{details['name']} ({details['symbol']})*\n\n"
+            f"💵 Price: `${details['current_price']:,.2f}`\n"
+            f"📈 24h Change: `{details['price_change_24h']:+.2f}%`\n"
+            f"📅 7d Change: `{details['price_change_7d']:+.2f}%`\n"
+            f"💎 Market Cap: `${details['market_cap']:,.0f}` (Rank #{details['market_cap_rank']})\n"
+            f"🔄 Circulating Supply: `{details['circulating_supply']:,.0f}`\n"
+            f"📦 Total Supply: `{details['total_supply']:,.0f}`\n"
+            f"🏆 All-Time High: `${details['ath']:,.2f}`\n\n"
+        )
+
+        if details.get("description"):
+            details_text += f"📝 *About:*\n{details['description']}\n\n"
+
+        if details.get("homepage"):
+            details_text += f"🔗 Website: {details['homepage']}"
+
+        await update.message.reply_text(details_text, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(
+            f"❌ Could not find details for '{coin}'. Please check the symbol."
+        )
+
+
+async def ratio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get long/short ratio."""
+    symbol = "BTCUSDT"
+    if context.args:
+        symbol = "".join(context.args).upper()
+        if not symbol.endswith("USDT"):
+            symbol = symbol.replace("USDT", "") + "USDT"
+
+    await update.message.reply_text(f"🔍 Fetching long/short ratio for {symbol}...")
+
+    ratio_data = await crypto_service.get_long_short_ratio(symbol)
+
+    if ratio_data:
+        long_pct = ratio_data["long_percentage"]
+        short_pct = ratio_data["short_percentage"]
+
+        # Create visual bar
+        bar_length = 20
+        long_bars = int((long_pct / 100) * bar_length)
+        short_bars = bar_length - long_bars
+        visual_bar = "🟢" * long_bars + "🔴" * short_bars
+
+        ratio_text = (
+            f"📊 *Long/Short Ratio - {symbol}*\n\n"
+            f"Ratio: `{ratio_data['long_short_ratio']:.2f}`\n\n"
+            f"{visual_bar}\n"
+            f"🟢 Long: `{long_pct:.1f}%`\n"
+            f"🔴 Short: `{short_pct:.1f}%`\n\n"
+            f"{'📈 More traders are LONG' if long_pct > 50 else '📉 More traders are SHORT'}"
+        )
+        await update.message.reply_text(ratio_text, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(
+            f"❌ Could not fetch ratio for {symbol}. Try a valid trading pair (e.g., BTCUSDT)."
+        )
+
+
+async def trending_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get trending cryptocurrencies."""
+    await update.message.reply_text("🔍 Fetching trending cryptocurrencies...")
+
+    trending = await crypto_service.get_trending_coins()
+
+    if trending:
+        trending_text = "🔥 *Trending Cryptocurrencies*\n\n"
+        for i, coin in enumerate(trending, 1):
+            change = coin.get("price_change_24h")
+            change_str = f"`{change:+.2f}%`" if change is not None else "N/A"
+            rank = f"#{coin['market_cap_rank']}" if coin.get("market_cap_rank") else "N/A"
+
+            trending_text += (
+                f"{i}. *{coin['name']}* ({coin['symbol']})\n"
+                f"   Rank: {rank} | 24h: {change_str}\n\n"
+            )
+
+        await update.message.reply_text(trending_text, parse_mode="Markdown")
+    else:
+        await update.message.reply_text("❌ Could not fetch trending coins. Please try again later.")
+
+
+async def sentiment_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get market sentiment (Fear & Greed Index)."""
+    await update.message.reply_text("🔍 Fetching market sentiment...")
+
+    fgi = await crypto_service.get_fear_greed_index()
+
+    if fgi:
+        value = fgi["value"]
+        classification = fgi["classification"]
+
+        # Emoji based on sentiment
+        if value <= 20:
+            emoji = "😱"
+            sentiment = "Extreme Fear"
+        elif value <= 40:
+            emoji = "😨"
+            sentiment = "Fear"
+        elif value <= 60:
+            emoji = "😐"
+            sentiment = "Neutral"
+        elif value <= 80:
+            emoji = "😊"
+            sentiment = "Greed"
+        else:
+            emoji = "🤑"
+            sentiment = "Extreme Greed"
+
+        # Visual scale
+        scale_pos = value // 10
+        scale = "▓" * scale_pos + "░" * (10 - scale_pos)
+
+        sentiment_text = (
+            f"{emoji} *Crypto Fear & Greed Index*\n\n"
+            f"Value: `{value}/100`\n"
+            f"Classification: *{classification}*\n\n"
+            f"0 {scale} 100\n"
+            f"😱 Extreme Fear     🤑 Extreme Greed\n\n"
+            f"{'📉 Market is fearful - might be a buying opportunity' if value < 50 else '📈 Market is greedy - be cautious of potential correction'}"
+        )
+        await update.message.reply_text(sentiment_text, parse_mode="Markdown")
+    else:
+        await update.message.reply_text("❌ Could not fetch market sentiment. Please try again later.")
+
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle errors."""
+    logger.error(f"Exception while handling an update: {context.error}")
+    if update and update.effective_message:
+        await update.effective_message.reply_text(
+            "❌ An error occurred. Please try again later."
+        )
+
+
+def main():
+    """Start the bot."""
+    if not BOT_TOKEN:
+        logger.error("TELEGRAM_BOT_TOKEN not found in environment variables!")
+        return
+
+    # Create the Application
+    app = Application.builder().token(BOT_TOKEN).build()
+
+    # Register command handlers
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("price", price_command))
+    app.add_handler(CommandHandler("top", top_command))
+    app.add_handler(CommandHandler("details", details_command))
+    app.add_handler(CommandHandler("ratio", ratio_command))
+    app.add_handler(CommandHandler("trending", trending_command))
+    app.add_handler(CommandHandler("sentiment", sentiment_command))
+
+    # Register error handler
+    app.add_error_handler(error_handler)
+
+    # Start the bot
+    logger.info("🤖 Bot is starting...")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+if __name__ == "__main__":
+    main()

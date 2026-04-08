@@ -4,6 +4,11 @@ A Telegram bot that provides real-time cryptocurrency market information, includ
 
 ## Demo
 
+**Add screenshots of the bot in action here:**
+- Screenshot 1: Bot /start command and welcome message
+- Screenshot 2: /price bitcoin showing current price
+- Screenshot 3: /top 5 showing top cryptocurrencies
+
 **Bot Commands in Action:**
 
 ```
@@ -239,9 +244,24 @@ This bot aggregates data from multiple free APIs:
 ## Development
 
 ### Running Tests
+
+**Automated Tests:**
+```bash
+# Install test dependencies
+cd backend
+source venv/bin/activate
+pip install -r ../tests/requirements.txt
+
+# Run all tests
+PYTHONPATH=.. python -m pytest ../tests/ -v
+```
+
+**Manual Testing:**
 ```bash
 # Test backend API
 curl http://localhost:8000/health
+curl http://localhost:8000/coins/bitcoin
+curl http://localhost:8000/trending
 
 # Test bot (manually in Telegram)
 # Send commands to your bot and verify responses

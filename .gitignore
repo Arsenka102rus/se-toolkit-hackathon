@@ -22,6 +22,8 @@ wheels/
 env/
 venv/
 .venv/
+backend/venv/
+bot/venv/
 
 # Environment
 .env
@@ -48,3 +50,12 @@ docker-compose.override.yml
 
 # Logs
 *.log
+
+# SSH Keys
+ssh_keys
+ssh_keys.pub
+
+# Test
+.pytest_cache/
+htmlcov/
+.coverage

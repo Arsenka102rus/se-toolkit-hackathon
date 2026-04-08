@@ -2,9 +2,9 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
-from backend.database import init_db, get_db
-from backend.models import User, UserPreference, PriceHistory
-from backend.crypto_service import crypto_service
+from database import init_db, get_db
+from models import User, UserPreference, PriceHistory
+from crypto_service import crypto_service
 from pydantic import BaseModel
 from datetime import datetime
 

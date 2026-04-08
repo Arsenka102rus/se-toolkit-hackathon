@@ -1,4 +1,5 @@
 import os
+import sys
 import logging
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -10,6 +11,9 @@ from telegram.ext import (
     filters,
     CallbackQueryHandler,
 )
+
+# Add parent directory to path to import backend modules
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.crypto_service import crypto_service
 
 load_dotenv()

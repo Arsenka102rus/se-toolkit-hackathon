@@ -154,9 +154,10 @@ class CryptoService:
     async def get_coin_details(self, symbol: str) -> Optional[Dict]:
         """Get detailed information about a cryptocurrency"""
         try:
+            coin_id = await self._resolve_coin_id(symbol)
             async with httpx.AsyncClient() as client:
                 response = await client.get(
-                    f"{self.COINGECKO_API}/coins/{symbol.lower()}",
+                    f"{self.COINGECKO_API}/coins/{coin_id}",
                     params={"localization": "false", "tickers": "false"},
                     timeout=10.0,
                 )
@@ -217,6 +218,7 @@ class CryptoService:
 
     async def _calculate_sentiment_from_market(self) -> Optional[Dict]:
         """Calculate market sentiment from real market data (BTC dominance, volume, price change)"""
+        import time
         try:
             async with httpx.AsyncClient() as client:
                 # Get BTC data
@@ -228,16 +230,22 @@ class CryptoService:
                         "include_24hr_change": "true",
                         "include_market_cap": "true",
                     },
-                    timeout=10.0,
+                    timeout=15.0,
                 )
-                
+
                 if btc_response.status_code != 200:
+                    print(f"BTC API returned {btc_response.status_code}")
                     return None
-                    
+
                 btc_data = btc_response.json().get("bitcoin", {})
+                if not btc_data:
+                    print("No BTC data in response")
+                    return None
                 btc_change_24h = btc_data.get("usd_24h_change", 0) or 0
-                btc_market_cap = btc_data.get("usd_market_cap", 0) or 0
-                
+
+                # Add a small delay to avoid CoinGecko rate limits
+                await __import__("asyncio").sleep(1.5)
+
                 # Get top 10 coins to calculate average market change
                 market_response = await client.get(
                     f"{self.COINGECKO_API}/coins/markets",
@@ -247,15 +255,16 @@ class CryptoService:
                         "per_page": 10,
                         "page": 1,
                     },
-                    timeout=10.0,
+                    timeout=15.0,
                 )
-                
+
                 if market_response.status_code != 200:
+                    print(f"Markets API returned {market_response.status_code}")
                     return None
-                    
+
                 top_coins = market_response.json()
                 avg_change = sum(
-                    (coin.get("price_change_percentage_24h") or 0) 
+                    (coin.get("price_change_percentage_24h") or 0)
                     for coin in top_coins
                 ) / len(top_coins)
                 

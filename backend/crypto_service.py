@@ -8,6 +8,7 @@ class CryptoService:
 
     COINGECKO_API = "https://api.coingecko.com/api/v3"
     BINANCE_API = "https://api.binance.com/api/v3"
+    BINANCE_FUTURES_API = "https://fapi.binance.com/futures/data"
 
     async def get_coin_price(self, symbol: str) -> Optional[Dict]:
         """Get current price for a cryptocurrency"""
@@ -72,11 +73,12 @@ class CryptoService:
         return []
 
     async def get_long_short_ratio(self, symbol: str = "BTCUSDT") -> Optional[Dict]:
-        """Get long/short ratio from Binance"""
+        """Get long/short ratio from Binance Futures API"""
         try:
             async with httpx.AsyncClient() as client:
+                # Use the updated Futures API endpoint (fapi.binance.com)
                 response = await client.get(
-                    f"{self.BINANCE_API}/topLongShortAccountRatio",
+                    f"{self.BINANCE_FUTURES_API}/globalLongShortAccountRatio",
                     params={"symbol": symbol, "period": "1d", "limit": 1},
                     timeout=10.0,
                 )
@@ -169,17 +171,18 @@ class CryptoService:
                         value = int(fgi.get("value", 0))
                         classification = fgi.get("value_classification", "Unknown")
                         
-                        # Check if data seems stale (timestamp older than 24 hours)
+                        # Check if data seems stale (older than 24 hours OR in the future)
                         import time
                         timestamp = int(fgi.get("timestamp", 0))
                         current_time = int(time.time())
-                        is_stale = (current_time - timestamp) > 86400  # 24 hours
-                        
+                        time_diff = current_time - timestamp
+                        is_stale = (abs(time_diff) > 86400)  # 24 hours in either direction
+
                         # If data seems stale, calculate our own based on market metrics
                         if is_stale:
-                            print("Fear & Greed data appears stale, calculating from market data...")
+                            print(f"Fear & Greed data appears stale (diff: {time_diff}s), calculating from market data...")
                             return await self._calculate_sentiment_from_market()
-                        
+
                         return {
                             "value": value,
                             "classification": classification,

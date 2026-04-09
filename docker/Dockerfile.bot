@@ -6,9 +6,9 @@ WORKDIR /app
 COPY bot/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy bot code
-COPY bot/ .
-COPY backend/ /app/backend/
+# Copy bot code into bot/ directory (not just contents)
+COPY bot/ ./bot/
+COPY backend/ ./backend/
 
 # Run the bot
-CMD ["python", "main.py"]
+CMD ["python", "-m", "bot.main"]

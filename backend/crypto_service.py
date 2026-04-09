@@ -141,39 +141,44 @@ class CryptoService:
         """Get current price for a cryptocurrency - try Binance first, then CoinGecko"""
         import asyncio
 
+        coin_id = await self._resolve_coin_id(symbol)
+        sym_upper = coin_id.replace("-", "").upper()
+
+        # Stablecoins and known non-tradable tokens on Binance — skip Binance, go straight to CoinGecko
+        stablecoins = {"tether", "usd-coin", "dai", "usds", "usde", "usdc", "usdt", "tusd", "fdusd", "paxg", "xaut", "pyusd", "usdp"}
+        use_binance = coin_id.lower() not in stablecoins
+
         # Try Binance API first (more reliable, no rate limits for spot prices)
-        try:
-            coin_id = await self._resolve_coin_id(symbol)
-            sym_upper = coin_id.replace("-", "").upper()
-            # Common pairs on Binance
-            for quote in ["USDT", "USD", "BUSD", "USDC"]:
-                try:
-                    async with httpx.AsyncClient() as client:
-                        response = await client.get(
-                            f"{self.BINANCE_API}/ticker/24hr",
-                            params={"symbol": f"{sym_upper}{quote}"},
-                            timeout=5.0,
-                        )
-                        if response.status_code == 200:
-                            data = response.json()
-                            price = float(data.get("lastPrice", 0))
-                            if price > 0:
-                                return {
-                                    "symbol": symbol.upper(),
-                                    "price": price,
-                                    "price_change_24h": float(data.get("priceChangePercent", 0)),
-                                    "volume_24h": float(data.get("volume", 0)) * price,
-                                    "market_cap": 0,  # Binance doesn't provide market cap
-                                }
-                except:
-                    continue
-        except Exception as e:
-            print(f"Binance lookup failed for {symbol}: {e}")
+        if use_binance:
+            try:
+                # Common pairs on Binance
+                for quote in ["USDT", "USD", "BUSD", "USDC"]:
+                    try:
+                        async with httpx.AsyncClient() as client:
+                            response = await client.get(
+                                f"{self.BINANCE_API}/ticker/24hr",
+                                params={"symbol": f"{sym_upper}{quote}"},
+                                timeout=5.0,
+                            )
+                            if response.status_code == 200:
+                                data = response.json()
+                                price = float(data.get("lastPrice", 0))
+                                if price > 0:
+                                    return {
+                                        "symbol": symbol.upper(),
+                                        "price": price,
+                                        "price_change_24h": float(data.get("priceChangePercent", 0)),
+                                        "volume_24h": float(data.get("volume", 0)) * price,
+                                        "market_cap": 0,
+                                    }
+                    except:
+                        continue
+            except Exception as e:
+                print(f"Binance lookup failed for {symbol}: {e}")
 
         # Fallback to CoinGecko with retry
         for attempt in range(3):
             try:
-                coin_id = await self._resolve_coin_id(symbol)
                 async with httpx.AsyncClient() as client:
                     response = await client.get(
                         f"{self.COINGECKO_API}/simple/price",

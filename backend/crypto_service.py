@@ -155,8 +155,9 @@ class CryptoService:
         return []
 
     async def get_fear_greed_index(self) -> Optional[Dict]:
-        """Get Crypto Fear & Greed Index"""
+        """Get Crypto Fear & Greed Index from multiple sources"""
         try:
+            # Try Alternative.me API first
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     "https://api.alternative.me/fng/?limit=1", timeout=10.0
@@ -165,14 +166,118 @@ class CryptoService:
                     data = response.json()
                     if data.get("data"):
                         fgi = data["data"][0]
+                        value = int(fgi.get("value", 0))
+                        classification = fgi.get("value_classification", "Unknown")
+                        
+                        # Check if data seems stale (timestamp older than 24 hours)
+                        import time
+                        timestamp = int(fgi.get("timestamp", 0))
+                        current_time = int(time.time())
+                        is_stale = (current_time - timestamp) > 86400  # 24 hours
+                        
+                        # If data seems stale, calculate our own based on market metrics
+                        if is_stale:
+                            print("Fear & Greed data appears stale, calculating from market data...")
+                            return await self._calculate_sentiment_from_market()
+                        
                         return {
-                            "value": int(fgi.get("value", 0)),
-                            "classification": fgi.get("value_classification", "Unknown"),
-                            "timestamp": fgi.get("timestamp"),
+                            "value": value,
+                            "classification": classification,
+                            "timestamp": timestamp,
+                            "source": "alternative.me"
                         }
         except Exception as e:
-            print(f"Error fetching fear & greed index: {e}")
-        return None
+            print(f"Error fetching fear & greed index from Alternative.me: {e}")
+        
+        # Fallback: calculate from market data
+        print("Falling back to market-based sentiment calculation...")
+        return await self._calculate_sentiment_from_market()
+
+    async def _calculate_sentiment_from_market(self) -> Optional[Dict]:
+        """Calculate market sentiment from real market data (BTC dominance, volume, price change)"""
+        try:
+            async with httpx.AsyncClient() as client:
+                # Get BTC data
+                btc_response = await client.get(
+                    f"{self.COINGECKO_API}/simple/price",
+                    params={
+                        "ids": "bitcoin",
+                        "vs_currencies": "usd",
+                        "include_24hr_change": "true",
+                        "include_market_cap": "true",
+                    },
+                    timeout=10.0,
+                )
+                
+                if btc_response.status_code != 200:
+                    return None
+                    
+                btc_data = btc_response.json().get("bitcoin", {})
+                btc_change_24h = btc_data.get("usd_24h_change", 0) or 0
+                btc_market_cap = btc_data.get("usd_market_cap", 0) or 0
+                
+                # Get top 10 coins to calculate average market change
+                market_response = await client.get(
+                    f"{self.COINGECKO_API}/coins/markets",
+                    params={
+                        "vs_currency": "usd",
+                        "order": "market_cap_desc",
+                        "per_page": 10,
+                        "page": 1,
+                    },
+                    timeout=10.0,
+                )
+                
+                if market_response.status_code != 200:
+                    return None
+                    
+                top_coins = market_response.json()
+                avg_change = sum(
+                    (coin.get("price_change_percentage_24h") or 0) 
+                    for coin in top_coins
+                ) / len(top_coins)
+                
+                # Calculate sentiment score (0-100)
+                # Base from BTC 24h change
+                # Positive change = higher sentiment, negative = lower
+                base_score = 50  # Neutral starting point
+                
+                # Weight BTC price change heavily (60% weight)
+                btc_sentiment = base_score + (btc_change_24h * 2)
+                
+                # Weight market average change (40% weight)  
+                market_sentiment = base_score + (avg_change * 2)
+                
+                # Combined score
+                final_score = (btc_sentiment * 0.6) + (market_sentiment * 0.4)
+                
+                # Clamp to 0-100
+                final_score = max(0, min(100, final_score))
+                
+                # Classification
+                if final_score <= 20:
+                    classification = "Extreme Fear"
+                elif final_score <= 40:
+                    classification = "Fear"
+                elif final_score <= 60:
+                    classification = "Neutral"
+                elif final_score <= 80:
+                    classification = "Greed"
+                else:
+                    classification = "Extreme Greed"
+                
+                import time
+                return {
+                    "value": round(final_score),
+                    "classification": classification,
+                    "timestamp": int(time.time()),
+                    "source": "market_calculation",
+                    "btc_change_24h": btc_change_24h,
+                    "market_avg_change_24h": avg_change
+                }
+        except Exception as e:
+            print(f"Error calculating market-based sentiment: {e}")
+            return None
 
 
 crypto_service = CryptoService()

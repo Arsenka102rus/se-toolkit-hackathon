@@ -79,18 +79,23 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get cryptocurrency price."""
-    user = update.effective_user
-    await db.log_command(str(user.id), "/price")
-
     if not context.args:
         await update.message.reply_text(
             "❌ Please specify a coin symbol. Example: `/price bitcoin`",
             parse_mode="Markdown",
         )
         return
-
+    
     coin = " ".join(context.args).lower()
-    await update.message.reply_text(f"🔍 Fetching price for {coin}...")
+    await send_coin_info(update, coin, context, "/price")
+
+
+async def send_coin_info(update: Update, coin: str, context: ContextTypes.DEFAULT_TYPE, source: str):
+    """Helper to fetch and send coin info"""
+    user = update.effective_user
+    await db.log_command(str(user.id), source)
+
+    await update.message.reply_text(f"🔍 Fetching info for {coin}...")
 
     coin_data = await crypto_service.get_coin_price(coin)
 
@@ -105,8 +110,17 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(price_text, parse_mode="Markdown")
     else:
         await update.message.reply_text(
-            f"❌ Could not find price for '{coin}'. Please check the symbol."
+            f"❌ Could not find price for '{coin}'. Please check the ticker."
         )
+
+async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle plain text messages as coin price lookups (default behavior)."""
+    text = update.message.text.strip()
+    if not text:
+        return
+    
+    # Treat any non-empty text as a coin/ticker lookup
+    await send_coin_info(update, text.lower(), context, f"text:{text}")
 
 
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -185,15 +199,37 @@ async def details_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ratio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Get long/short ratio."""
+    """Get long/short ratio. Defaults to USDT pair if none provided."""
     user = update.effective_user
     await db.log_command(str(user.id), "/ratio")
 
-    symbol = "BTCUSDT"
+    # Default base symbol and pair suffix
+    base_symbol = "BTC"
+    pair_suffix = "USDT"  # Default pair suffix, can be changed
+
     if context.args:
-        symbol = "".join(context.args).upper()
-        if not symbol.endswith("USDT"):
-            symbol = symbol.replace("USDT", "") + "USDT"
+        raw_arg = "".join(context.args).upper()
+        # Check if user specified a different pair suffix
+        known_suffixes = ["USDT", "BUSD", "USDC"]
+        
+        # Try to extract base symbol by removing known pair suffixes
+        suffix_found = False
+        for suffix in known_suffixes:
+            if raw_arg.endswith(suffix):
+                extracted_base = raw_arg[:-len(suffix)]
+                if extracted_base:  # Make sure there's actually a base symbol
+                    base_symbol = extracted_base
+                    pair_suffix = suffix
+                    suffix_found = True
+                    break
+        
+        # If no pair suffix found, treat the whole thing as base symbol with USDT
+        if not suffix_found:
+            base_symbol = raw_arg
+            pair_suffix = "USDT"
+
+    # Build the trading pair symbol
+    symbol = base_symbol + pair_suffix
 
     await update.message.reply_text(f"🔍 Fetching long/short ratio for {symbol}...")
 
@@ -287,8 +323,22 @@ async def sentiment_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sentiment_text = (
             f"{emoji} *Crypto Fear & Greed Index*\n\n"
             f"Value: `{value}/100`\n"
-            f"Classification: *{classification}*\n\n"
-            f"0 {scale} 100\n"
+            f"Classification: *{classification}*\n"
+        )
+        
+        # Add source info if calculated from market data
+        if fgi.get("source") == "market_calculation":
+            sentiment_text += (
+                f"\n📊 *Market Data:*\n"
+                f"• BTC 24h: `{fgi.get('btc_change_24h', 0):+.2f}%`\n"
+                f"• Top 10 Avg: `{fgi.get('market_avg_change_24h', 0):+.2f}%`\n"
+                f"• Source: Real-time market calculation\n"
+            )
+        else:
+            sentiment_text += f"• Source: Alternative.me\n"
+        
+        sentiment_text += (
+            f"\n0 {scale} 100\n"
             f"😱 Extreme Fear     🤑 Extreme Greed\n\n"
             f"{'📉 Market is fearful - might be a buying opportunity' if value < 50 else '📈 Market is greedy - be cautious of potential correction'}"
         )
@@ -324,13 +374,16 @@ def main():
     app.add_handler(CommandHandler("ratio", ratio_command))
     app.add_handler(CommandHandler("trending", trending_command))
     app.add_handler(CommandHandler("sentiment", sentiment_command))
+    
+    # Register text message handler (for default coin price lookup)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
 
     # Register error handler
     app.add_error_handler(error_handler)
 
     # Start the bot
     logger.info("🤖 Bot is starting...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
 if __name__ == "__main__":

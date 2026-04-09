@@ -14,8 +14,18 @@ from telegram.ext import (
 
 # Add parent directory to path to import backend modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from backend.crypto_service import crypto_service
-from bot.database_helper import db
+
+# Try Docker path first, then local path
+try:
+    from database_helper import db
+except ImportError:
+    from bot.database_helper import db
+
+try:
+    from backend.crypto_service import crypto_service
+except ImportError:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'backend'))
+    from backend.crypto_service import crypto_service
 
 load_dotenv()
 

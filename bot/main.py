@@ -100,6 +100,17 @@ async def send_coin_info(update: Update, coin: str, context: ContextTypes.DEFAUL
     coin_data = await crypto_service.get_coin_price(coin)
 
     if coin_data:
+        # Check if rate limited
+        if coin_data.get("rate_limited"):
+            await update.message.reply_text(
+                f"⚠️ *Rate Limit Reached*\n\n"
+                f"Too many requests to the price API. Please wait **~30 seconds** and try again.\n\n"
+                f"💡 *Tip:* Most coins are available instantly via Binance. "
+                f"Rate limits only affect less common tokens.",
+                parse_mode="Markdown",
+            )
+            return
+
         price_text = (
             f"💰 *{coin_data['symbol']}*\n\n"
             f"💵 Price: `${coin_data['price']:,.2f}`\n"

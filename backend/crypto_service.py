@@ -306,37 +306,14 @@ class CryptoService:
                             data = response.json()
                             price = float(data.get("lastPrice", 0))
                             if price > 0:
-                                result = {
+                                return {
                                     "symbol": symbol.upper(),
                                     "price": price,
                                     "price_change_24h": float(data.get("priceChangePercent", 0)),
                                     "volume_24h": float(data.get("volume", 0)) * price,
                                     "market_cap": 0,
+                                    "rate_limited": False,
                                 }
-                                # Enrich with CoinGecko data for market_cap and global volume
-                                try:
-                                    async with httpx.AsyncClient() as cg_client:
-                                        cg_resp = await cg_client.get(
-                                            f"{self.COINGECKO_API}/simple/price",
-                                            params={
-                                                "ids": coin_id,
-                                                "vs_currencies": "usd",
-                                                "include_24hr_vol": "true",
-                                                "include_market_cap": "true",
-                                            },
-                                            timeout=10.0,
-                                        )
-                                        if cg_resp.status_code == 200:
-                                            cg_data = cg_resp.json()
-                                            if coin_id in cg_data:
-                                                cg_info = cg_data[coin_id]
-                                                if cg_info.get("usd_market_cap"):
-                                                    result["market_cap"] = cg_info["usd_market_cap"]
-                                                if cg_info.get("usd_24h_vol"):
-                                                    result["volume_24h"] = cg_info["usd_24h_vol"]
-                                except Exception as cg_err:
-                                    print(f"CoinGecko enrichment failed (non-critical): {cg_err}")
-                                return result
                 except:
                     continue
         except Exception as e:
@@ -358,10 +335,14 @@ class CryptoService:
                         timeout=15.0,
                     )
                     if response.status_code == 429:
-                        wait_time = 3 * (attempt + 1)
-                        print(f"CoinGecko rate limited, waiting {wait_time}s ({attempt+1}/3)")
-                        await asyncio.sleep(wait_time)
-                        continue
+                        if attempt < 2:
+                            wait_time = 3 * (attempt + 1)
+                            print(f"CoinGecko rate limited, waiting {wait_time}s ({attempt+1}/3)")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        else:
+                            # All retries exhausted — return rate limited signal
+                            return {"rate_limited": True, "symbol": symbol.upper()}
                     if response.status_code == 200:
                         data = response.json()
                         if coin_id in data:
@@ -371,6 +352,7 @@ class CryptoService:
                                 "price_change_24h": data[coin_id].get("usd_24h_change"),
                                 "volume_24h": data[coin_id].get("usd_24h_vol"),
                                 "market_cap": data[coin_id].get("usd_market_cap"),
+                                "rate_limited": False,
                             }
                         if symbol.lower() in data:
                             return {
@@ -379,11 +361,12 @@ class CryptoService:
                                 "price_change_24h": data[symbol.lower()].get("usd_24h_change"),
                                 "volume_24h": data[symbol.lower()].get("usd_24h_vol"),
                                 "market_cap": data[symbol.lower()].get("usd_market_cap"),
+                                "rate_limited": False,
                             }
             except Exception as e:
                 print(f"CoinGecko error for {symbol}: {e}")
                 await asyncio.sleep(1)
-        return None
+        return {"rate_limited": True, "symbol": symbol.upper()}
 
     async def get_top_coins(self, limit: int = 10) -> List[Dict]:
         """Get top cryptocurrencies by market cap"""

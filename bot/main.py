@@ -104,9 +104,10 @@ async def send_coin_info(update: Update, coin: str, context: ContextTypes.DEFAUL
             f"💰 *{coin_data['symbol']}*\n\n"
             f"💵 Price: `${coin_data['price']:,.2f}`\n"
             f"📈 24h Change: `{coin_data['price_change_24h']:+.2f}%`\n"
-            f"💎 Market Cap: `${coin_data['market_cap']:,.0f}`\n"
-            f"📊 24h Volume: `${coin_data['volume_24h']:,.0f}`"
         )
+        if coin_data.get('market_cap') and coin_data['market_cap'] > 0:
+            price_text += f"💎 Market Cap: `${coin_data['market_cap']:,.0f}`\n"
+        price_text += f"📊 24h Volume: `${coin_data['volume_24h']:,.0f}`"
         await update.message.reply_text(price_text, parse_mode="Markdown")
     else:
         await update.message.reply_text(

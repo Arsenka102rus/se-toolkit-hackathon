@@ -138,8 +138,39 @@ class CryptoService:
         return sym
 
     async def get_coin_price(self, symbol: str) -> Optional[Dict]:
-        """Get current price for a cryptocurrency"""
+        """Get current price for a cryptocurrency - try Binance first, then CoinGecko"""
         import asyncio
+
+        # Try Binance API first (more reliable, no rate limits for spot prices)
+        try:
+            coin_id = await self._resolve_coin_id(symbol)
+            sym_upper = coin_id.replace("-", "").upper()
+            # Common pairs on Binance
+            for quote in ["USDT", "USD", "BUSD", "USDC"]:
+                try:
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(
+                            f"{self.BINANCE_API}/ticker/24hr",
+                            params={"symbol": f"{sym_upper}{quote}"},
+                            timeout=5.0,
+                        )
+                        if response.status_code == 200:
+                            data = response.json()
+                            price = float(data.get("lastPrice", 0))
+                            if price > 0:
+                                return {
+                                    "symbol": symbol.upper(),
+                                    "price": price,
+                                    "price_change_24h": float(data.get("priceChangePercent", 0)),
+                                    "volume_24h": float(data.get("volume", 0)) * price,
+                                    "market_cap": 0,  # Binance doesn't provide market cap
+                                }
+                except:
+                    continue
+        except Exception as e:
+            print(f"Binance lookup failed for {symbol}: {e}")
+
+        # Fallback to CoinGecko with retry
         for attempt in range(3):
             try:
                 coin_id = await self._resolve_coin_id(symbol)
@@ -156,7 +187,7 @@ class CryptoService:
                         timeout=15.0,
                     )
                     if response.status_code == 429:
-                        wait_time = 2 * (attempt + 1)
+                        wait_time = 3 * (attempt + 1)
                         print(f"CoinGecko rate limited, waiting {wait_time}s ({attempt+1}/3)")
                         await asyncio.sleep(wait_time)
                         continue
@@ -179,7 +210,7 @@ class CryptoService:
                                 "market_cap": data[symbol.lower()].get("usd_market_cap"),
                             }
             except Exception as e:
-                print(f"Error fetching price for {symbol}: {e}")
+                print(f"CoinGecko error for {symbol}: {e}")
                 await asyncio.sleep(1)
         return None
 

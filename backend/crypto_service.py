@@ -139,42 +139,48 @@ class CryptoService:
 
     async def get_coin_price(self, symbol: str) -> Optional[Dict]:
         """Get current price for a cryptocurrency"""
-        try:
-            coin_id = await self._resolve_coin_id(symbol)
-            async with httpx.AsyncClient() as client:
-                # Using CoinGecko with resolved coin_id
-                response = await client.get(
-                    f"{self.COINGECKO_API}/simple/price",
-                    params={
-                        "ids": coin_id,
-                        "vs_currencies": "usd",
-                        "include_24hr_change": "true",
-                        "include_24hr_vol": "true",
-                        "include_market_cap": "true",
-                    },
-                    timeout=10.0,
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    if coin_id in data:
-                        return {
-                            "symbol": symbol.upper(),
-                            "price": data[coin_id].get("usd"),
-                            "price_change_24h": data[coin_id].get("usd_24h_change"),
-                            "volume_24h": data[coin_id].get("usd_24h_vol"),
-                            "market_cap": data[coin_id].get("usd_market_cap"),
-                        }
-                    # Fallback: try original symbol as key
-                    if symbol.lower() in data:
-                        return {
-                            "symbol": symbol.upper(),
-                            "price": data[symbol.lower()].get("usd"),
-                            "price_change_24h": data[symbol.lower()].get("usd_24h_change"),
-                            "volume_24h": data[symbol.lower()].get("usd_24h_vol"),
-                            "market_cap": data[symbol.lower()].get("usd_market_cap"),
-                        }
-        except Exception as e:
-            print(f"Error fetching price for {symbol}: {e}")
+        import asyncio
+        for attempt in range(3):
+            try:
+                coin_id = await self._resolve_coin_id(symbol)
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        f"{self.COINGECKO_API}/simple/price",
+                        params={
+                            "ids": coin_id,
+                            "vs_currencies": "usd",
+                            "include_24hr_change": "true",
+                            "include_24hr_vol": "true",
+                            "include_market_cap": "true",
+                        },
+                        timeout=15.0,
+                    )
+                    if response.status_code == 429:
+                        wait_time = 2 * (attempt + 1)
+                        print(f"CoinGecko rate limited, waiting {wait_time}s ({attempt+1}/3)")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    if response.status_code == 200:
+                        data = response.json()
+                        if coin_id in data:
+                            return {
+                                "symbol": symbol.upper(),
+                                "price": data[coin_id].get("usd"),
+                                "price_change_24h": data[coin_id].get("usd_24h_change"),
+                                "volume_24h": data[coin_id].get("usd_24h_vol"),
+                                "market_cap": data[coin_id].get("usd_market_cap"),
+                            }
+                        if symbol.lower() in data:
+                            return {
+                                "symbol": symbol.upper(),
+                                "price": data[symbol.lower()].get("usd"),
+                                "price_change_24h": data[symbol.lower()].get("usd_24h_change"),
+                                "volume_24h": data[symbol.lower()].get("usd_24h_vol"),
+                                "market_cap": data[symbol.lower()].get("usd_market_cap"),
+                            }
+            except Exception as e:
+                print(f"Error fetching price for {symbol}: {e}")
+                await asyncio.sleep(1)
         return None
 
     async def get_top_coins(self, limit: int = 10) -> List[Dict]:

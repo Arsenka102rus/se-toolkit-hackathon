@@ -266,15 +266,47 @@ class CryptoService:
         coin_id = await self._resolve_coin_id(symbol)
         sym = symbol.lower().strip()
 
-        # Stablecoins — skip all APIs, return ~$1.00 instantly
+        # Stablecoins — fetch real market data from CoinGecko
         stablecoin_ids = {"tether", "usd-coin", "dai", "usds", "usde", "tusd", "fdusd", "pyusd", "usdp"}
-        if coin_id.lower() in stablecoin_ids:
+        stablecoin_tickers = {"usdt", "usdc"}
+        is_stablecoin = coin_id.lower() in stablecoin_ids or sym in stablecoin_tickers
+        if is_stablecoin:
+            # Try CoinGecko for real market cap/volume
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        f"{self.COINGECKO_API}/simple/price",
+                        params={
+                            "ids": coin_id,
+                            "vs_currencies": "usd",
+                            "include_24hr_change": "true",
+                            "include_24hr_vol": "true",
+                            "include_market_cap": "true",
+                        },
+                        timeout=15.0,
+                    )
+                    if response.status_code == 200:
+                        data = response.json()
+                        if coin_id in data:
+                            cg = data[coin_id]
+                            return {
+                                "symbol": symbol.upper(),
+                                "price": cg.get("usd", 1.00),
+                                "price_change_24h": cg.get("usd_24h_change", 0.00) or 0.00,
+                                "volume_24h": cg.get("usd_24h_vol", 0) or 0,
+                                "market_cap": cg.get("usd_market_cap", 0) or 0,
+                                "rate_limited": False,
+                            }
+            except Exception as e:
+                print(f"CoinGecko stablecoin fetch failed for {symbol}: {e}")
+            # Fallback to hardcoded if API fails
             return {
                 "symbol": symbol.upper(),
                 "price": 1.00,
                 "price_change_24h": 0.00,
                 "volume_24h": 0,
                 "market_cap": 0,
+                "rate_limited": False,
             }
 
         # Get Binance symbol if we have a mapping
@@ -518,30 +550,44 @@ class CryptoService:
                     return None
                 btc_change_24h = btc_data.get("usd_24h_change", 0) or 0
 
-                # Add a small delay to avoid CoinGecko rate limits
-                await __import__("asyncio").sleep(1.5)
+                # Add a longer delay to avoid CoinGecko rate limits
+                await asyncio.sleep(5)
 
                 # Get top 10 coins to calculate average market change
-                market_response = await client.get(
-                    f"{self.COINGECKO_API}/coins/markets",
-                    params={
-                        "vs_currency": "usd",
-                        "order": "market_cap_desc",
-                        "per_page": 10,
-                        "page": 1,
-                    },
-                    timeout=15.0,
-                )
+                for attempt in range(3):
+                    market_response = await client.get(
+                        f"{self.COINGECKO_API}/coins/markets",
+                        params={
+                            "vs_currency": "usd",
+                            "order": "market_cap_desc",
+                            "per_page": 10,
+                            "page": 1,
+                        },
+                        timeout=15.0,
+                    )
 
-                if market_response.status_code != 200:
-                    print(f"Markets API returned {market_response.status_code}")
-                    return None
-
-                top_coins = market_response.json()
-                avg_change = sum(
-                    (coin.get("price_change_percentage_24h") or 0)
-                    for coin in top_coins
-                ) / len(top_coins)
+                    if market_response.status_code == 429:
+                        if attempt < 2:
+                            wait_time = 5 * (attempt + 1)
+                            print(f"Sentiment markets rate limited, waiting {wait_time}s ({attempt+1}/3)")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        else:
+                            # Fallback: use only BTC data
+                            print("Markets API exhausted retries, using BTC-only calculation")
+                            avg_change = btc_change_24h  # fallback to just BTC
+                            break
+                    elif market_response.status_code != 200:
+                        print(f"Markets API returned {market_response.status_code}")
+                        avg_change = btc_change_24h
+                        break
+                    else:
+                        top_coins = market_response.json()
+                        avg_change = sum(
+                            (coin.get("price_change_percentage_24h") or 0)
+                            for coin in top_coins
+                        ) / len(top_coins)
+                        break
                 
                 # Calculate sentiment score (0-100)
                 # Base from BTC 24h change

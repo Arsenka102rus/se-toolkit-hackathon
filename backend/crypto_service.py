@@ -113,16 +113,89 @@ class CryptoService:
         "ont": "ontology",
         "waves": "waves",
         "chz": "chiliz",
-        "enJ": "enjincoin",
+        "enj": "enjincoin",
         "1inch": "1inch",
         "dydx": "dydx",
         "gala": "gala",
         "lunc": "terra-luna",
         "luna": "terra-luna-2",
         "blur": "blur",
-        "apt": "aptos",
-        "arb": "arbitrum",
-        "op": "optimism",
+    }
+
+    # Ticker symbol → Binance trading symbol (uppercase, short form)
+    TICKER_TO_BINANCE = {
+        "btc": "BTC",
+        "eth": "ETH",
+        "usdt": "USDT",
+        "usdc": "USDC",
+        "xrp": "XRP",
+        "bnb": "BNB",
+        "sol": "SOL",
+        "trx": "TRX",
+        "doge": "DOGE",
+        "ada": "ADA",
+        "bch": "BCH",
+        "link": "LINK",
+        "xmr": "XMR",
+        "zec": "ZEC",
+        "xlm": "XLM",
+        "dai": "DAI",
+        "ltc": "LTC",
+        "avax": "AVAX",
+        "hbar": "HBAR",
+        "sui": "SUI",
+        "shib": "SHIB",
+        "tao": "TAO",
+        "ton": "TON",
+        "dot": "DOT",
+        "uni": "UNI",
+        "near": "NEAR",
+        "pepe": "PEPE",
+        "icp": "ICP",
+        "aave": "AAVE",
+        "etc": "ETC",
+        "algo": "ALGO",
+        "matic": "MATIC",
+        "atom": "ATOM",
+        "kas": "KAS",
+        "wld": "WLD",
+        "fil": "FIL",
+        "apt": "APT",
+        "arb": "ARB",
+        "op": "OP",
+        "inj": "INJ",
+        "imx": "IMX",
+        "stx": "STX",
+        "tia": "TIA",
+        "wif": "WIF",
+        "sei": "SEI",
+        "pendle": "PENDLE",
+        "rune": "RUNE",
+        "ftm": "FTM",
+        "grt": "GRT",
+        "sand": "SAND",
+        "mana": "MANA",
+        "axs": "AXS",
+        "flow": "FLOW",
+        "xtz": "XTZ",
+        "eos": "EOS",
+        "mkr": "MKR",
+        "snx": "SNX",
+        "cake": "CAKE",
+        "ldo": "LDO",
+        "crv": "CRV",
+        "sushi": "SUSHI",
+        "bat": "BAT",
+        "chz": "CHZ",
+        "enj": "ENJ",
+        "dydx": "DYDX",
+        "gala": "GALA",
+        "blur": "BLUR",
+        "not": "NOT",
+        "hmstr": "HMSTR",
+        "bonk": "BONK",
+        "rndr": "RNDR",
+        "render": "RNDR",
     }
 
     async def _resolve_coin_id(self, symbol: str) -> str:
@@ -142,7 +215,10 @@ class CryptoService:
         import asyncio
 
         coin_id = await self._resolve_coin_id(symbol)
-        sym_upper = coin_id.replace("-", "").upper()
+        sym = symbol.lower().strip()
+
+        # Get Binance symbol if we have a mapping
+        binance_symbol = self.TICKER_TO_BINANCE.get(sym, sym.replace("-", "").upper())
 
         # Stablecoins and known non-tradable tokens on Binance — skip Binance, go straight to CoinGecko
         stablecoins = {"tether", "usd-coin", "dai", "usds", "usde", "usdc", "usdt", "tusd", "fdusd", "paxg", "xaut", "pyusd", "usdp"}
@@ -157,7 +233,7 @@ class CryptoService:
                         async with httpx.AsyncClient() as client:
                             response = await client.get(
                                 f"{self.BINANCE_API}/ticker/24hr",
-                                params={"symbol": f"{sym_upper}{quote}"},
+                                params={"symbol": f"{binance_symbol}{quote}"},
                                 timeout=5.0,
                             )
                             if response.status_code == 200:

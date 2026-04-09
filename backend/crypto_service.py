@@ -266,65 +266,81 @@ class CryptoService:
         coin_id = await self._resolve_coin_id(symbol)
         sym = symbol.lower().strip()
 
+        # Stablecoins — skip all APIs, return ~$1.00 instantly
+        stablecoin_ids = {"tether", "usd-coin", "dai", "usds", "usde", "tusd", "fdusd", "pyusd", "usdp"}
+        if coin_id.lower() in stablecoin_ids:
+            return {
+                "symbol": symbol.upper(),
+                "price": 1.00,
+                "price_change_24h": 0.00,
+                "volume_24h": 0,
+                "market_cap": 0,
+            }
+
         # Get Binance symbol if we have a mapping
         binance_symbol = self.TICKER_TO_BINANCE.get(sym, sym.replace("-", "").upper())
 
-        # Stablecoins and known non-tradable tokens on Binance — skip Binance, go straight to CoinGecko
-        stablecoins = {"tether", "usd-coin", "dai", "usds", "usde", "usdc", "usdt", "tusd", "fdusd", "paxg", "xaut", "pyusd", "usdp"}
-        use_binance = coin_id.lower() not in stablecoins
+        # More stablecoins that map to USDT/USDC tickers
+        stablecoin_tickers = {"usdt", "usdc"}
+        if sym in stablecoin_tickers:
+            return {
+                "symbol": symbol.upper(),
+                "price": 1.00,
+                "price_change_24h": 0.00,
+                "volume_24h": 0,
+                "market_cap": 0,
+            }
 
         # Try Binance API first (more reliable, no rate limits for spot prices)
-        if use_binance:
-            try:
-                # Common pairs on Binance
-                for quote in ["USDT", "USD", "BUSD", "USDC"]:
-                    try:
-                        async with httpx.AsyncClient() as client:
-                            response = await client.get(
-                                f"{self.BINANCE_API}/ticker/24hr",
-                                params={"symbol": f"{binance_symbol}{quote}"},
-                                timeout=5.0,
-                            )
-                            if response.status_code == 200:
-                                data = response.json()
-                                price = float(data.get("lastPrice", 0))
-                                if price > 0:
-                                    result = {
-                                        "symbol": symbol.upper(),
-                                        "price": price,
-                                        "price_change_24h": float(data.get("priceChangePercent", 0)),
-                                        "volume_24h": float(data.get("volume", 0)) * price,
-                                        "market_cap": 0,
-                                    }
-                                    # Enrich with CoinGecko data for market_cap and global volume
-                                    # (don't wait for it, just fire and forget in background)
-                                    try:
-                                        async with httpx.AsyncClient() as cg_client:
-                                            cg_resp = await cg_client.get(
-                                                f"{self.COINGECKO_API}/simple/price",
-                                                params={
-                                                    "ids": coin_id,
-                                                    "vs_currencies": "usd",
-                                                    "include_24hr_vol": "true",
-                                                    "include_market_cap": "true",
-                                                },
-                                                timeout=10.0,
-                                            )
-                                            if cg_resp.status_code == 200:
-                                                cg_data = cg_resp.json()
-                                                if coin_id in cg_data:
-                                                    cg_info = cg_data[coin_id]
-                                                    if cg_info.get("usd_market_cap"):
-                                                        result["market_cap"] = cg_info["usd_market_cap"]
-                                                    if cg_info.get("usd_24h_vol"):
-                                                        result["volume_24h"] = cg_info["usd_24h_vol"]
-                                    except Exception as cg_err:
-                                        print(f"CoinGecko enrichment failed (non-critical): {cg_err}")
-                                    return result
-                    except:
-                        continue
-            except Exception as e:
-                print(f"Binance lookup failed for {symbol}: {e}")
+        try:
+            # Common pairs on Binance
+            for quote in ["USDT", "USD", "BUSD", "USDC"]:
+                try:
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(
+                            f"{self.BINANCE_API}/ticker/24hr",
+                            params={"symbol": f"{binance_symbol}{quote}"},
+                            timeout=5.0,
+                        )
+                        if response.status_code == 200:
+                            data = response.json()
+                            price = float(data.get("lastPrice", 0))
+                            if price > 0:
+                                result = {
+                                    "symbol": symbol.upper(),
+                                    "price": price,
+                                    "price_change_24h": float(data.get("priceChangePercent", 0)),
+                                    "volume_24h": float(data.get("volume", 0)) * price,
+                                    "market_cap": 0,
+                                }
+                                # Enrich with CoinGecko data for market_cap and global volume
+                                try:
+                                    async with httpx.AsyncClient() as cg_client:
+                                        cg_resp = await cg_client.get(
+                                            f"{self.COINGECKO_API}/simple/price",
+                                            params={
+                                                "ids": coin_id,
+                                                "vs_currencies": "usd",
+                                                "include_24hr_vol": "true",
+                                                "include_market_cap": "true",
+                                            },
+                                            timeout=10.0,
+                                        )
+                                        if cg_resp.status_code == 200:
+                                            cg_data = cg_resp.json()
+                                            if coin_id in cg_data:
+                                                cg_info = cg_data[coin_id]
+                                                if cg_info.get("usd_market_cap"):
+                                                    result["market_cap"] = cg_info["usd_market_cap"]
+                                                if cg_info.get("usd_24h_vol"):
+                                                    result["volume_24h"] = cg_info["usd_24h_vol"]
+                                except Exception as cg_err:
+                                    print(f"CoinGecko enrichment failed (non-critical): {cg_err}")
+                                return result
+                except:
+                    continue
+        except Exception as e:
+            print(f"Binance lookup failed for {symbol}: {e}")
 
         # Fallback to CoinGecko with retry
         for attempt in range(3):

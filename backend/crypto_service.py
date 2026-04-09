@@ -10,9 +10,53 @@ class CryptoService:
     BINANCE_API = "https://api.binance.com/api/v3"
     BINANCE_FUTURES_API = "https://fapi.binance.com/futures/data"
 
+    # Common ticker → CoinGecko ID mapping
+    TICKER_TO_ID = {
+        "btc": "bitcoin",
+        "eth": "ethereum",
+        "bnb": "binancecoin",
+        "sol": "solana",
+        "xrp": "ripple",
+        "ada": "cardano",
+        "doge": "dogecoin",
+        "ton": "the-open-network",
+        "dot": "polkadot",
+        "matic": "matic-network",
+        "avax": "avalanche-2",
+        "link": "chainlink",
+        "shib": "shiba-inu",
+        "atom": "cosmos",
+        "ltc": "litecoin",
+        "uni": "uniswap",
+        "near": "near",
+        "apt": "aptos",
+        "arb": "arbitrum",
+        "op": "optimism",
+        "fil": "filecoin",
+        "etc": "ethereum-classic",
+        "sui": "sui",
+        "pepe": "pepe",
+        "wif": "dogwifcoin",
+        "not": "notcoin",
+        "hmstr": "hamster-kombat",
+    }
+
+    async def _resolve_coin_id(self, symbol: str) -> str:
+        """Convert common ticker symbols to CoinGecko IDs"""
+        sym = symbol.lower().strip()
+        # Check our mapping first
+        if sym in self.TICKER_TO_ID:
+            return self.TICKER_TO_ID[sym]
+        # Try common full names
+        if sym.endswith("coin") or sym.endswith("network") or sym.endswith("chain"):
+            return sym
+        # Try as-is
+        return sym
+
     async def get_coin_price(self, symbol: str) -> Optional[Dict]:
         """Get current price for a cryptocurrency"""
         try:
+            coin_id = await self._resolve_coin_id(symbol)
             async with httpx.AsyncClient() as client:
                 # Using CoinGecko
                 response = await client.get(
@@ -28,6 +72,15 @@ class CryptoService:
                 )
                 if response.status_code == 200:
                     data = response.json()
+                    if coin_id in data:
+                        return {
+                            "symbol": symbol.upper(),
+                            "price": data[coin_id].get("usd"),
+                            "price_change_24h": data[coin_id].get("usd_24h_change"),
+                            "volume_24h": data[coin_id].get("usd_24h_vol"),
+                            "market_cap": data[coin_id].get("usd_market_cap"),
+                        }
+                    # Fallback: try original symbol as key
                     if symbol.lower() in data:
                         return {
                             "symbol": symbol.upper(),

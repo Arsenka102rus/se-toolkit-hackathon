@@ -4,10 +4,17 @@ A Telegram bot that provides real-time cryptocurrency market information, includ
 
 ## Demo
 
-**Add screenshots of the bot in action here:**
-- Screenshot 1: Bot /start command and welcome message
-- Screenshot 2: /price bitcoin showing current price
-- Screenshot 3: /top 5 showing top cryptocurrencies
+**Bot /start command:**
+![Bot Start](images/01-start.png)
+
+**Top cryptocurrencies:**
+![Top Coins](images/02-top-coins.png)
+
+**Getting Ethereum price:**
+![Price](images/03-price.png)
+
+**Market sentiment (Fear & Greed Index):**
+![Sentiment](images/04-sentiment.png)
 
 **Bot Commands in Action:**
 

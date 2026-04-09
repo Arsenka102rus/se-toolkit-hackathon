@@ -518,17 +518,16 @@ class CryptoService:
         return []
 
     async def get_fear_greed_index(self) -> Optional[Dict]:
-        """Get Crypto Fear & Greed Index - always calculated from real market data"""
-        # Alternative.me API returns unreliable values (e.g. 14 when reality is ~42)
-        # So we always calculate from real market movements
+        """Get Crypto Fear & Greed Index - calculated from real BTC market data"""
+        # Always calculate from BTC price movements - single API call, no rate limit issues
         return await self._calculate_sentiment_from_market()
 
     async def _calculate_sentiment_from_market(self) -> Optional[Dict]:
-        """Calculate market sentiment from real market data (BTC dominance, volume, price change)"""
+        """Calculate market sentiment from BTC price change only (fast, reliable)"""
         import time
         try:
             async with httpx.AsyncClient() as client:
-                # Get BTC data
+                # Get BTC data - single request, fast and reliable
                 btc_response = await client.get(
                     f"{self.COINGECKO_API}/simple/price",
                     params={
@@ -550,62 +549,11 @@ class CryptoService:
                     return None
                 btc_change_24h = btc_data.get("usd_24h_change", 0) or 0
 
-                # Add a longer delay to avoid CoinGecko rate limits
-                await asyncio.sleep(5)
-
-                # Get top 10 coins to calculate average market change
-                for attempt in range(3):
-                    market_response = await client.get(
-                        f"{self.COINGECKO_API}/coins/markets",
-                        params={
-                            "vs_currency": "usd",
-                            "order": "market_cap_desc",
-                            "per_page": 10,
-                            "page": 1,
-                        },
-                        timeout=15.0,
-                    )
-
-                    if market_response.status_code == 429:
-                        if attempt < 2:
-                            wait_time = 5 * (attempt + 1)
-                            print(f"Sentiment markets rate limited, waiting {wait_time}s ({attempt+1}/3)")
-                            await asyncio.sleep(wait_time)
-                            continue
-                        else:
-                            # Fallback: use only BTC data
-                            print("Markets API exhausted retries, using BTC-only calculation")
-                            avg_change = btc_change_24h  # fallback to just BTC
-                            break
-                    elif market_response.status_code != 200:
-                        print(f"Markets API returned {market_response.status_code}")
-                        avg_change = btc_change_24h
-                        break
-                    else:
-                        top_coins = market_response.json()
-                        avg_change = sum(
-                            (coin.get("price_change_percentage_24h") or 0)
-                            for coin in top_coins
-                        ) / len(top_coins)
-                        break
-                
-                # Calculate sentiment score (0-100)
-                # Base from BTC 24h change
-                # Positive change = higher sentiment, negative = lower
-                base_score = 50  # Neutral starting point
-                
-                # Weight BTC price change heavily (60% weight)
-                btc_sentiment = base_score + (btc_change_24h * 2)
-                
-                # Weight market average change (40% weight)  
-                market_sentiment = base_score + (avg_change * 2)
-                
-                # Combined score
-                final_score = (btc_sentiment * 0.6) + (market_sentiment * 0.4)
-                
-                # Clamp to 0-100
+                # Calculate sentiment score (0-100) based on BTC 24h change
+                base_score = 50  # Neutral
+                final_score = base_score + (btc_change_24h * 2.5)  # Scale: +5% → +62.5, -5% → 37.5
                 final_score = max(0, min(100, final_score))
-                
+
                 # Classification
                 if final_score <= 20:
                     classification = "Extreme Fear"
@@ -617,15 +565,14 @@ class CryptoService:
                     classification = "Greed"
                 else:
                     classification = "Extreme Greed"
-                
-                import time
+
                 return {
                     "value": round(final_score),
                     "classification": classification,
                     "timestamp": int(time.time()),
-                    "source": "market_calculation",
+                    "source": "btc_market",
                     "btc_change_24h": btc_change_24h,
-                    "market_avg_change_24h": avg_change
+                    "market_avg_change_24h": btc_change_24h,  # Same since BTC-only
                 }
         except Exception as e:
             print(f"Error calculating market-based sentiment: {e}")

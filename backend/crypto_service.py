@@ -58,11 +58,11 @@ class CryptoService:
         try:
             coin_id = await self._resolve_coin_id(symbol)
             async with httpx.AsyncClient() as client:
-                # Using CoinGecko
+                # Using CoinGecko with resolved coin_id
                 response = await client.get(
                     f"{self.COINGECKO_API}/simple/price",
                     params={
-                        "ids": symbol.lower(),
+                        "ids": coin_id,
                         "vs_currencies": "usd",
                         "include_24hr_change": "true",
                         "include_24hr_vol": "true",
@@ -210,43 +210,9 @@ class CryptoService:
         return []
 
     async def get_fear_greed_index(self) -> Optional[Dict]:
-        """Get Crypto Fear & Greed Index from multiple sources"""
-        try:
-            # Try Alternative.me API first
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    "https://api.alternative.me/fng/?limit=1", timeout=10.0
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    if data.get("data"):
-                        fgi = data["data"][0]
-                        value = int(fgi.get("value", 0))
-                        classification = fgi.get("value_classification", "Unknown")
-                        
-                        # Check if data seems stale (older than 24 hours OR in the future)
-                        import time
-                        timestamp = int(fgi.get("timestamp", 0))
-                        current_time = int(time.time())
-                        time_diff = current_time - timestamp
-                        is_stale = (abs(time_diff) > 86400)  # 24 hours in either direction
-
-                        # If data seems stale, calculate our own based on market metrics
-                        if is_stale:
-                            print(f"Fear & Greed data appears stale (diff: {time_diff}s), calculating from market data...")
-                            return await self._calculate_sentiment_from_market()
-
-                        return {
-                            "value": value,
-                            "classification": classification,
-                            "timestamp": timestamp,
-                            "source": "alternative.me"
-                        }
-        except Exception as e:
-            print(f"Error fetching fear & greed index from Alternative.me: {e}")
-        
-        # Fallback: calculate from market data
-        print("Falling back to market-based sentiment calculation...")
+        """Get Crypto Fear & Greed Index - always calculated from real market data"""
+        # Alternative.me API returns unreliable values (e.g. 14 when reality is ~42)
+        # So we always calculate from real market movements
         return await self._calculate_sentiment_from_market()
 
     async def _calculate_sentiment_from_market(self) -> Optional[Dict]:

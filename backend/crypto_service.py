@@ -125,62 +125,109 @@ class CryptoService:
     # Ticker symbol → Binance trading symbol (uppercase, short form)
     TICKER_TO_BINANCE = {
         "btc": "BTC",
+        "bitcoin": "BTC",
         "eth": "ETH",
+        "ethereum": "ETH",
         "usdt": "USDT",
+        "tether": "USDT",
         "usdc": "USDC",
         "xrp": "XRP",
         "bnb": "BNB",
+        "binancecoin": "BNB",
         "sol": "SOL",
+        "solana": "SOL",
         "trx": "TRX",
+        "tron": "TRX",
         "doge": "DOGE",
+        "dogecoin": "DOGE",
         "ada": "ADA",
+        "cardano": "ADA",
         "bch": "BCH",
         "link": "LINK",
+        "chainlink": "LINK",
         "xmr": "XMR",
+        "monero": "XMR",
         "zec": "ZEC",
+        "zcash": "ZEC",
         "xlm": "XLM",
+        "stellar": "XLM",
         "dai": "DAI",
         "ltc": "LTC",
+        "litecoin": "LTC",
         "avax": "AVAX",
+        "avalanche-2": "AVAX",
+        "avalanche": "AVAX",
         "hbar": "HBAR",
+        "hedera-hashgraph": "HBAR",
+        "hedera": "HBAR",
         "sui": "SUI",
         "shib": "SHIB",
+        "shiba-inu": "SHIB",
         "tao": "TAO",
+        "bittensor": "TAO",
         "ton": "TON",
+        "the-open-network": "TON",
+        "toncoin": "TON",
+        "cro": "CRO",
         "dot": "DOT",
+        "polkadot": "DOT",
         "uni": "UNI",
+        "uniswap": "UNI",
         "near": "NEAR",
         "pepe": "PEPE",
         "icp": "ICP",
+        "internet-computer": "ICP",
         "aave": "AAVE",
         "etc": "ETC",
+        "ethereum-classic": "ETC",
         "algo": "ALGO",
+        "algorand": "ALGO",
         "matic": "MATIC",
+        "matic-network": "MATIC",
+        "polygon-ecosystem-token": "MATIC",
+        "polygon": "MATIC",
         "atom": "ATOM",
+        "cosmos": "ATOM",
+        "cosmos-hub": "ATOM",
         "kas": "KAS",
+        "kaspa": "KAS",
         "wld": "WLD",
+        "worldcoin-wld": "WLD",
         "fil": "FIL",
+        "filecoin": "FIL",
         "apt": "APT",
+        "aptos": "APT",
         "arb": "ARB",
+        "arbitrum": "ARB",
         "op": "OP",
+        "optimism": "OP",
         "inj": "INJ",
         "imx": "IMX",
+        "immutable-x": "IMX",
         "stx": "STX",
         "tia": "TIA",
         "wif": "WIF",
         "sei": "SEI",
         "pendle": "PENDLE",
         "rune": "RUNE",
+        "thorchain": "RUNE",
         "ftm": "FTM",
+        "fantom": "FTM",
         "grt": "GRT",
+        "the-graph": "GRT",
         "sand": "SAND",
+        "the-sandbox": "SAND",
         "mana": "MANA",
+        "decentraland": "MANA",
         "axs": "AXS",
         "flow": "FLOW",
         "xtz": "XTZ",
+        "tezos": "XTZ",
         "eos": "EOS",
         "mkr": "MKR",
+        "maker": "MKR",
         "snx": "SNX",
+        "havven": "SNX",
         "cake": "CAKE",
         "ldo": "LDO",
         "crv": "CRV",
@@ -192,10 +239,12 @@ class CryptoService:
         "gala": "GALA",
         "blur": "BLUR",
         "not": "NOT",
+        "notcoin": "NOT",
         "hmstr": "HMSTR",
         "bonk": "BONK",
         "rndr": "RNDR",
         "render": "RNDR",
+        "render-token": "RNDR",
     }
 
     async def _resolve_coin_id(self, symbol: str) -> str:
@@ -240,13 +289,38 @@ class CryptoService:
                                 data = response.json()
                                 price = float(data.get("lastPrice", 0))
                                 if price > 0:
-                                    return {
+                                    result = {
                                         "symbol": symbol.upper(),
                                         "price": price,
                                         "price_change_24h": float(data.get("priceChangePercent", 0)),
                                         "volume_24h": float(data.get("volume", 0)) * price,
                                         "market_cap": 0,
                                     }
+                                    # Enrich with CoinGecko data for market_cap and global volume
+                                    # (don't wait for it, just fire and forget in background)
+                                    try:
+                                        async with httpx.AsyncClient() as cg_client:
+                                            cg_resp = await cg_client.get(
+                                                f"{self.COINGECKO_API}/simple/price",
+                                                params={
+                                                    "ids": coin_id,
+                                                    "vs_currencies": "usd",
+                                                    "include_24hr_vol": "true",
+                                                    "include_market_cap": "true",
+                                                },
+                                                timeout=10.0,
+                                            )
+                                            if cg_resp.status_code == 200:
+                                                cg_data = cg_resp.json()
+                                                if coin_id in cg_data:
+                                                    cg_info = cg_data[coin_id]
+                                                    if cg_info.get("usd_market_cap"):
+                                                        result["market_cap"] = cg_info["usd_market_cap"]
+                                                    if cg_info.get("usd_24h_vol"):
+                                                        result["volume_24h"] = cg_info["usd_24h_vol"]
+                                    except Exception as cg_err:
+                                        print(f"CoinGecko enrichment failed (non-critical): {cg_err}")
+                                    return result
                     except:
                         continue
             except Exception as e:
